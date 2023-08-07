@@ -254,9 +254,6 @@ Or you can also do it via email(contact@nota.ai) or phone(+82 2-555-8659)!
 </br>
 </br>
 
-<div align="center"><img src="assets/logo.png" width="350"></div>
-<img src="assets/demo.png" >
-
 # Official YOLOv7
 
 Implementation of paper - [YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors](https://arxiv.org/abs/2207.02696)
