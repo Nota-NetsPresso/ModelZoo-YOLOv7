@@ -42,6 +42,9 @@ def train(hyp, opt, device, tb_writer=None):
     logger.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
     save_dir, epochs, batch_size, total_batch_size, weights, rank = \
         Path(opt.save_dir), opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank
+        
+    # NetsPresso
+    netspresso = opt.netspresso
 
     # Directories
     wdir = save_dir / 'weights'
@@ -81,7 +84,12 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Model
     pretrained = weights.endswith('.pt')
-    if pretrained:
+    if netspresso:
+        ckpt = torch.load(weights, map_location=device)
+        state_dict = ckpt['model'].float().state_dict()  # to avoid bugs
+        model = ckpt['model'].float()
+        logger.info(f'Using NetsPresso Option. Loaded model from {weights}')  # report
+    elif pretrained:
         with torch_distributed_zero_first(rank):
             attempt_download(weights)  # download if not found locally
         ckpt = torch.load(weights, map_location=device)  # load checkpoint
@@ -558,6 +566,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--netspresso', action='store_true', help='retraining the compressed model')
     opt = parser.parse_args()
 
     # Set DDP variables
