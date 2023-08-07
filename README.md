@@ -1,3 +1,262 @@
+<div align="center">
+  <p>
+    <a align="center" target="_blank">
+      <img width="100%" src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/banner/YOLOv7_banner.png"></a>
+  </p>
+
+</div>
+
+# <div align="center">NetsPresso tutorial for YOLOv7 compression</div>
+## Order of the tutorial
+[0. Sign up](#0-sign-up) </br>
+[1. Install](#1-install) </br>
+[2. Training](#2-training) </br>
+[3. Transfer Training](#3-transfer-learning) </br>
+[4. Convert YOLOv7 to yolov7_fx.pt 1](#4-convert-yolov7-to-yolov7_fxpt-1) </br>
+[5. Model compression with NetsPresso Python Package](#5-model-compression-with-netspresso-python-package) </br>
+[6. Restore the compressed model to the original model structure](#6-restore-the-compressed-model-to-the-original-model-structure) </br>
+[7. Retrain the compressed model](#7-retrain-the-compressed-model) </br>
+[8. Convert YOLOv7 to yolov7_fx.pt 2](#8-convert-yolov7-to-yolov7_fxpt-2) </br>
+
+## 0. Sign up
+To get started with the NetsPresso Python package, you will need to sign up either at <a href="https://netspresso.ai?utm_source=git_yolo&utm_medium=text_np&utm_campaign=py_launch" target="_blank">NetsPresso</a> or <a href="https://py.netspresso.ai/?utm_source=git_yolo&utm_medium=text_py&utm_campaign=py_launch" target="_blank">PyNetsPresso</a>.
+</br>
+
+## 1. Install
+Clone repo and install [requirements.txt](https://github.com/ultralytics/yolov5/blob/master/requirements.txt) in a
+[**Python>=3.7.0**](https://www.python.org/) environment, including
+[**PyTorch >= 1.11, < 2.0**](https://pytorch.org/get-started/locally/).
+
+```bash
+git clone https://github.com/Nota-NetsPresso/yolov7_nota.git  # clone
+cd yolov7_nota
+pip install -r requirements.txt
+```
+</br>
+
+## 2. Training
+Data preparation
+
+``` shell
+bash scripts/get_coco.sh
+```
+
+* Download MS COCO dataset images ([train](http://images.cocodataset.org/zips/train2017.zip), [val](http://images.cocodataset.org/zips/val2017.zip), [test](http://images.cocodataset.org/zips/test2017.zip)) and [labels](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/coco2017labels-segments.zip). If you have previously used a different version of YOLO, we strongly recommend that you delete `train2017.cache` and `val2017.cache` files, and redownload [labels](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/coco2017labels-segments.zip) 
+
+Single GPU training
+
+``` shell
+# train p5 models
+python train.py --workers 8 --device 0 --batch-size 32 --data data/coco.yaml --img 640 640 --cfg cfg/training/yolov7.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
+
+# train p6 models
+python train_aux.py --workers 8 --device 0 --batch-size 16 --data data/coco.yaml --img 1280 1280 --cfg cfg/training/yolov7-w6.yaml --weights '' --name yolov7-w6 --hyp data/hyp.scratch.p6.yaml
+```
+
+Multiple GPU training
+
+``` shell
+# train p5 models
+python -m torch.distributed.launch --nproc_per_node 4 --master_port 9527 train.py --workers 8 --device 0,1,2,3 --sync-bn --batch-size 128 --data data/coco.yaml --img 640 640 --cfg cfg/training/yolov7.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
+
+# train p6 models
+python -m torch.distributed.launch --nproc_per_node 8 --master_port 9527 train_aux.py --workers 8 --device 0,1,2,3,4,5,6,7 --sync-bn --batch-size 128 --data data/coco.yaml --img 1280 1280 --cfg cfg/training/yolov7-w6.yaml --weights '' --name yolov7-w6 --hyp data/hyp.scratch.p6.yaml
+```
+
+## 3. Transfer learning
+
+[`yolov7_training.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7_training.pt) [`yolov7x_training.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7x_training.pt) [`yolov7-w6_training.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-w6_training.pt) [`yolov7-e6_training.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-e6_training.pt) [`yolov7-d6_training.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-d6_training.pt) [`yolov7-e6e_training.pt`](https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-e6e_training.pt)
+
+Single GPU finetuning for custom dataset
+
+``` shell
+# finetune p5 models
+python train.py --workers 8 --device 0 --batch-size 32 --data data/custom.yaml --img 640 640 --cfg cfg/training/yolov7-custom.yaml --weights 'yolov7_training.pt' --name yolov7-custom --hyp data/hyp.scratch.custom.yaml
+
+# finetune p6 models
+python train_aux.py --workers 8 --device 0 --batch-size 16 --data data/custom.yaml --img 1280 1280 --cfg cfg/training/yolov7-w6-custom.yaml --weights 'yolov7-w6_training.pt' --name yolov7-w6-custom --hyp data/hyp.scratch.custom.yaml
+```
+
+## 4. Convert YOLOv7 to yolov7_fx.pt 1
+```bash
+python tools/export_netspresso.py --weights yolov7_training.pt --data data/coco.yaml 
+```
+Executing this code will create 'yolov7_fx.pt'.<br/><br/>
+
+## 5. Model compression with NetsPresso Python Package<br/>
+Upload & compress your 'yolov7_fx.pt' by using NetsPresso Python Package
+### 5_1. Install NetsPresso Python Package
+```bash
+pip install netspresso
+```
+### 5_2. Upload & compress
+First, import the packages and set a NetsPresso username and password.
+```python
+from netspresso.compressor import ModelCompressor, Task, Framework, CompressionMethod, RecommendationMethod
+
+EMAIL = "YOUR_EMAIL"
+PASSWORD = "YOUR_PASSWORD"
+compressor = ModelCompressor(email=EMAIL, password=PASSWORD)
+```
+Second, upload 'model_to_compress.pt', which is the model converted to torchfx in step 4, with the following code.
+```python
+# Upload Model
+UPLOAD_MODEL_NAME = "yolov7_model"
+TASK = Task.OBJECT_DETECTION
+FRAMEWORK = Framework.PYTORCH
+UPLOAD_MODEL_PATH = "./yolov7_fx.pt"
+INPUT_SHAPES = [{"batch": 1, "channel": 3, "dimension": [640, 640]}]
+model = compressor.upload_model(
+    model_name=UPLOAD_MODEL_NAME,
+    task=TASK,
+    framework=FRAMEWORK,
+    file_path=UPLOAD_MODEL_PATH,
+    input_shapes=INPUT_SHAPES,
+)
+```
+Finally, you can compress the uploaded model with the desired options through the following code.
+```python
+# Recommendation Compression
+COMPRESSED_MODEL_NAME = "test_l2norm"
+COMPRESSION_METHOD = CompressionMethod.PR_L2
+RECOMMENDATION_METHOD = RecommendationMethod.SLAMP
+RECOMMENDATION_RATIO = 0.6
+OUTPUT_PATH = "./yolov7_L206.pt"
+compressed_model = compressor.recommendation_compression(
+    model_id=model.model_id,
+    model_name=COMPRESSED_MODEL_NAME,
+    compression_method=COMPRESSION_METHOD,
+    recommendation_method=RECOMMENDATION_METHOD,
+    recommendation_ratio=RECOMMENDATION_RATIO,
+    output_path=OUTPUT_PATH,
+)
+```
+
+<details>
+<summary>Click to check 'Full upload & compress code'</summary>
+
+```bash
+pip install netspresso
+```
+
+```python
+from netspresso.compressor import ModelCompressor, Task, Framework, CompressionMethod, RecommendationMethod
+
+
+EMAIL = "YOUR_EMAIL"
+PASSWORD = "YOUR_PASSWORD"
+compressor = ModelCompressor(email=EMAIL, password=PASSWORD)
+
+# Upload Model
+UPLOAD_MODEL_NAME = "yolov7_model"
+TASK = Task.OBJECT_DETECTION
+FRAMEWORK = Framework.PYTORCH
+UPLOAD_MODEL_PATH = "./yolov7_fx.pt"
+INPUT_SHAPES = [{"batch": 1, "channel": 3, "dimension": [640, 640]}]
+model = compressor.upload_model(
+    model_name=UPLOAD_MODEL_NAME,
+    task=TASK,
+    framework=FRAMEWORK,
+    file_path=UPLOAD_MODEL_PATH,
+    input_shapes=INPUT_SHAPES,
+)
+
+# Recommendation Compression
+COMPRESSED_MODEL_NAME = "test_l2norm"
+COMPRESSION_METHOD = CompressionMethod.PR_L2
+RECOMMENDATION_METHOD = RecommendationMethod.SLAMP
+RECOMMENDATION_RATIO = 0.6
+OUTPUT_PATH = "./yolov7_L206.pt"
+compressed_model = compressor.recommendation_compression(
+    model_id=model.model_id,
+    model_name=COMPRESSED_MODEL_NAME,
+    compression_method=COMPRESSION_METHOD,
+    recommendation_method=RECOMMENDATION_METHOD,
+    recommendation_ratio=RECOMMENDATION_RATIO,
+    output_path=OUTPUT_PATH,
+)
+```
+
+</details>
+
+More commands can be found in the official NetsPresso Python Package docs: https://nota-netspresso.github.io/netspresso-python-docs/build/html/index.html <br/>
+Alternatively, you can do the same as above through the GUI on our website: https://console.netspresso.ai/models<br/><br/>
+
+## 6. Restore the compressed model to the original model structure</br>
+The compressed model is restored to the original model structure through the following code.
+This will create a fx2p_complete.pt file.
+```bash
+python yolov7_fx2p.py --original yolov7_training.pt --compressed yolov7_L206.pt --detect 105
+```
+
+## 7. Retrain the compressed model</br>
+The compressed model is restored to the original model structure through the following code.
+``` bash
+python train.py --netspresso --workers 8 --device 0 --batch-size 32 --data data/coco.yaml --img 640 640 --weights fx2p_complete.pt --name yolov7 --hyp data/hyp.scratch.p5.yaml
+```
+
+## 8. Convert YOLOv7 to yolov7_fx.pt 2
+If you want to compress the compressed model?
+```bash
+python tools/export_netspresso.py --netspresso --weights fx2p_complete.pt --data data/coco.yaml
+```
+Start with the following code and repeat steps 5, 6, and 7! <br/>
+Now you can use the compressed model however you like!<br/>
+
+## <div align="center">Contact</div>
+
+Join our <a href="https://github.com/orgs/Nota-NetsPresso/discussions">Discussion Forum</a> for providing feedback or sharing your use cases, and if you want to talk more with Nota, please contact us <a href="https://www.nota.ai/contact-us">here</a>.</br>
+Or you can also do it via email(contact@nota.ai) or phone(+82 2-555-8659)!
+
+<br>
+<div align="center">
+  <a href="https://github.com/Nota-NetsPresso" style="text-decoration:none;">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/github_white.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/github.png">
+      <img alt="github" src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/github.png" width="3%">
+    </picture>
+  </a>
+  <img src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/logo-transparent.png" width="3%" alt="" />
+  <a href="https://www.facebook.com/NotaAI" style="text-decoration:none;">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/facebook_white.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/facebook.png">
+      <img alt="facebook" src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/facebook.png" width="3%">
+    </picture>
+  </a>
+  <img src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/logo-transparent.png" width="3%" alt="" />
+  <a href="https://twitter.com/nota_ai" style="text-decoration:none;">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/twitter_white.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/twitter.png">
+      <img alt="twitter" src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/twitter.png" width="3%">
+    </picture>
+  </a>
+  <img src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/logo-transparent.png" width="3%" alt="" />
+  <a href="https://www.youtube.com/channel/UCeewYFAqb2EqwEXZCfH9DVQ" style="text-decoration:none;">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/youtube_white.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/youtube.png">
+      <img alt="youtube" src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/youtube.png" width="3%">
+    </picture>
+  </a>
+  <img src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/logo-transparent.png" width="3%" alt="" />
+  <a href="https://www.linkedin.com/company/nota-incorporated" style="text-decoration:none;">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/linkedin_white.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/linkedin.png">
+      <img alt="youtube" src="https://github.com/Nota-NetsPresso/NetsPresso-Compatible-Models/blob/main/imgs/common/linkedin.png" width="3%">
+    </picture>
+  </a>
+</div>
+
+</br>
+</br>
+
+<div align="center"><img src="assets/logo.png" width="350"></div>
+<img src="assets/demo.png" >
+
 # Official YOLOv7
 
 Implementation of paper - [YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors](https://arxiv.org/abs/2207.02696)
