@@ -2017,3 +2017,14 @@ class ST2CSPC(nn.Module):
         return self.cv4(torch.cat((y1, y2), dim=1))
 
 ##### end of swin transformer v2 #####   
+
+class Netspresso_FD(nn.Module):
+    # Standard convolution
+    def __init__(self, modules: list):
+        super(Netspresso_FD, self).__init__()
+        self.netspressofds = nn.ModuleList(modules)
+
+    def forward(self, x):
+        for module in self.netspressofds:
+            x = module(x)
+        return x
