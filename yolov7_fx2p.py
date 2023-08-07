@@ -10,7 +10,7 @@ from collections import OrderedDict
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--original', type=str, default='./yolor-csp-c.pt', help='weights path')
-    parser.add_argument('--compresssed', type=str, default='./yolor-csp-c.pt', help='weights path')
+    parser.add_argument('--compressed', type=str, default='./yolor-csp-c.pt', help='weights path')
     parser.add_argument('--detect', type=str, default='105', help='number of detect()') # YOLOv7: 105, YOLOv7x: 121, YOLOv7-W6: 122, YOLOv7-E6:144, YOLOv7-D6: 166, YOLOv7-E6E: 265
     opt = parser.parse_args()
     
