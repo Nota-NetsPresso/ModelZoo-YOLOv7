@@ -179,15 +179,17 @@ class IDetect(nn.Module):
         print("IDetect.fuse")
         # fuse ImplicitA and Convolution
         for i in range(len(self.m)):
-            c1,c2,_,_ = self.m[i].weight.shape
-            c1_,c2_, _,_ = self.ia[i].implicit.shape
-            self.m[i].bias += torch.matmul(self.m[i].weight.reshape(c1,c2),self.ia[i].implicit.reshape(c2_,c1_)).squeeze(1)
+            if not hasattr(self.m[i], 'netspressofds'):
+                c1,c2,_,_ = self.m[i].weight.shape
+                c1_,c2_, _,_ = self.ia[i].implicit.shape
+                self.m[i].bias += torch.matmul(self.m[i].weight.reshape(c1,c2),self.ia[i].implicit.reshape(c2_,c1_)).squeeze(1)
 
         # fuse ImplicitM and Convolution
         for i in range(len(self.m)):
-            c1,c2, _,_ = self.im[i].implicit.shape
-            self.m[i].bias *= self.im[i].implicit.reshape(c2)
-            self.m[i].weight *= self.im[i].implicit.transpose(0,1)
+            if not hasattr(self.m[i], 'netspressofds'):
+                c1,c2, _,_ = self.im[i].implicit.shape
+                self.m[i].bias *= self.im[i].implicit.reshape(c2)
+                self.m[i].weight *= self.im[i].implicit.transpose(0,1)
             
     @staticmethod
     def _make_grid(nx=20, ny=20):
@@ -402,15 +404,17 @@ class IAuxDetect(nn.Module):
         print("IAuxDetect.fuse")
         # fuse ImplicitA and Convolution
         for i in range(len(self.m)):
-            c1,c2,_,_ = self.m[i].weight.shape
-            c1_,c2_, _,_ = self.ia[i].implicit.shape
-            self.m[i].bias += torch.matmul(self.m[i].weight.reshape(c1,c2),self.ia[i].implicit.reshape(c2_,c1_)).squeeze(1)
+            if not hasattr(self.m[i], 'netspressofds'):
+                c1,c2,_,_ = self.m[i].weight.shape
+                c1_,c2_, _,_ = self.ia[i].implicit.shape
+                self.m[i].bias += torch.matmul(self.m[i].weight.reshape(c1,c2),self.ia[i].implicit.reshape(c2_,c1_)).squeeze(1)
 
         # fuse ImplicitM and Convolution
         for i in range(len(self.m)):
-            c1,c2, _,_ = self.im[i].implicit.shape
-            self.m[i].bias *= self.im[i].implicit.reshape(c2)
-            self.m[i].weight *= self.im[i].implicit.transpose(0,1)
+            if not hasattr(self.m[i], 'netspressofds'):
+                c1,c2, _,_ = self.im[i].implicit.shape
+                self.m[i].bias *= self.im[i].implicit.reshape(c2)
+                self.m[i].weight *= self.im[i].implicit.transpose(0,1)
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
@@ -693,14 +697,17 @@ class Model(nn.Module):
     def fuse(self):  # fuse model Conv2d() + BatchNorm2d() layers
         print('Fusing layers... ')
         for m in self.model.modules():
-            if isinstance(m, RepConv):
+            if isinstance(m, RepConv) and not hasattr(m.rbr_dense[0], 'netspressofds') and not hasattr(m.rbr_1x1[0], 'netspressofds'):
                 #print(f" fuse_repvgg_block")
                 m.fuse_repvgg_block()
-            elif isinstance(m, RepConv_OREPA):
+            elif isinstance(m, RepConv_OREPA) and not hasattr(m.rbr_dense[0], 'netspressofds') and not hasattr(m.rbr_1x1[0], 'netspressofds'):
                 #print(f" switch_to_deploy")
                 m.switch_to_deploy()
             elif type(m) is Conv and hasattr(m, 'bn'):
-                m.conv = fuse_conv_and_bn(m.conv, m.bn)  # update conv
+                if not hasattr(m.conv, 'netspressofds'):
+                    m.conv = fuse_conv_and_bn(m.conv, m.bn)  # update conv
+                else:
+                    m.conv.netspressofds[-1] = fuse_conv_and_bn(m.conv.netspressofds[-1], m.bn) # update conv[-1]
                 delattr(m, 'bn')  # remove batchnorm
                 m.forward = m.fuseforward  # update forward
             elif isinstance(m, (IDetect, IAuxDetect)):
