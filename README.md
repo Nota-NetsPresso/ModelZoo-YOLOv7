@@ -198,7 +198,7 @@ python train.py --netspresso --workers 8 --device 0 --batch-size 32 --data data/
 ## 8. Convert YOLOv7 to yolov7_fx.pt 2
 If you want to compress the compressed model?
 ```bash
-python tools/export_netspresso.py --netspresso --weights fx2p_complete.pt --data data/coco.yaml
+python export_netspresso.py --netspresso --weights fx2p_complete.pt --data data/coco.yaml
 ```
 Start with the following code and repeat steps 5, 6, and 7! <br/>
 Now you can use the compressed model however you like!<br/>
