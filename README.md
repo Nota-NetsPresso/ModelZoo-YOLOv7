@@ -28,8 +28,8 @@ Clone repo and install [requirements.txt](https://github.com/ultralytics/yolov5/
 [**PyTorch >= 1.11, < 2.0**](https://pytorch.org/get-started/locally/).
 
 ```bash
-git clone https://github.com/Nota-NetsPresso/yolov7_nota.git  # clone
-cd yolov7_nota
+git clone https://github.com/Nota-NetsPresso/ModelZoo-YOLOv7.git  # clone
+cd ModelZoo-YOLOv7
 pip install -r requirements.txt
 ```
 </br>
