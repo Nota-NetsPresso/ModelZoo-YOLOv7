@@ -23,7 +23,7 @@ To get started with the NetsPresso Python package, you will need to sign up eith
 </br>
 
 ## 1. Install
-Clone repo and install [requirements.txt](https://github.com/ultralytics/yolov5/blob/master/requirements.txt) in a
+Clone repo and install [requirements.txt](https://github.com/Nota-NetsPresso/ModelZoo-YOLOv7/blob/main/requirements.txt) in a
 [**Python>=3.7.0**](https://www.python.org/) environment, including
 [**PyTorch >= 1.11, < 2.0**](https://pytorch.org/get-started/locally/).
 
