@@ -79,7 +79,7 @@ python train_aux.py --workers 8 --device 0 --batch-size 16 --data data/custom.ya
 
 ## 4. Convert YOLOv7 to yolov7_fx.pt 1
 ```bash
-python tools/export_netspresso.py --weights yolov7_training.pt --data data/coco.yaml 
+python export_netspresso.py --weights yolov7_training.pt --data data/coco.yaml 
 ```
 Executing this code will create 'yolov7_fx.pt'.<br/><br/>
 
