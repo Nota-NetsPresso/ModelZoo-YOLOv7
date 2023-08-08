@@ -16,7 +16,8 @@
 [5. Model compression with NetsPresso Python Package](#5-model-compression-with-netspresso-python-package) </br>
 [6. Restore the compressed model to the original model structure](#6-restore-the-compressed-model-to-the-original-model-structure) </br>
 [7. Retrain the compressed model](#7-retrain-the-compressed-model) </br>
-[8. Convert YOLOv7 to yolov7_fx.pt 2](#8-convert-yolov7-to-yolov7_fxpt-2) </br>
+[8. NetsPresso Re-parameterization](#8-netspresso-re-parameterization) </br>
+[9. Convert YOLOv7 to yolov7_fx.pt 2](#9-convert-yolov7-to-yolov7_fxpt-2) </br>
 
 ## 0. Sign up
 To get started with the NetsPresso Python package, you will need to sign up either at <a href="https://netspresso.ai?utm_source=git_yolo&utm_medium=text_np&utm_campaign=py_launch" target="_blank">NetsPresso</a> or <a href="https://py.netspresso.ai/?utm_source=git_yolo&utm_medium=text_py&utm_campaign=py_launch" target="_blank">PyNetsPresso</a>.
@@ -195,7 +196,11 @@ The compressed model is restored to the original model structure through the fol
 python train.py --netspresso --workers 8 --device 0 --batch-size 32 --data data/coco.yaml --img 640 640 --weights fx2p_complete.pt --name yolov7 --hyp data/hyp.scratch.p5.yaml
 ```
 
-## 8. Convert YOLOv7 to yolov7_fx.pt 2
+## 8. NetsPresso Re-parameterization
+
+See [netspresso_reparameterization.ipynb](tools/netspresso_reparameterization.ipynb)
+
+## 9. Convert YOLOv7 to yolov7_fx.pt 2
 If you want to compress the compressed model?
 ```bash
 python export_netspresso.py --netspresso --weights fx2p_complete.pt --data data/coco.yaml
