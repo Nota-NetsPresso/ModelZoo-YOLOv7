@@ -222,7 +222,7 @@ if __name__ == '__main__':
         
     # RepConv
     for module in original_model._modules['model']._modules:
-        if isinstance(original_model._modules['model']._modules[module], (models.common.RepConv, models.common.RepConv_OPERA)) and not hasattr(original_model._modules['model']._modules[module]._modules['rbr_dense'][0], 'netspressofds'):
+        if isinstance(original_model._modules['model']._modules[module], (models.common.RepConv, models.common.RepConv_OREPA)) and not hasattr(original_model._modules['model']._modules[module]._modules['rbr_dense'][0], 'netspressofds'):
             original_model._modules['model']._modules[module].in_channels = original_model._modules['model']._modules[module]._modules['rbr_dense'][0].in_channels
             if hasattr(original_model._modules['model']._modules[module], 'out_channels'):
                 original_model._modules['model']._modules[module].out_channels = original_model._modules['model']._modules[module]._modules['rbr_dense'][0].out_channels
