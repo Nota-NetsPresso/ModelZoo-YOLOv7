@@ -180,7 +180,7 @@ compressed_model = compressor.recommendation_compression(
 
 </details>
 
-More commands can be found in the official NetsPresso Python Package docs: https://nota-netspresso.github.io/netspresso-python-docs/build/html/index.html <br/>
+More commands can be found in the official NetsPresso Python Package docs: https://nota-netspresso.github.io/PyNetsPresso-docs<br/>
 Alternatively, you can do the same as above through the GUI on our website: https://console.netspresso.ai/models<br/><br/>
 
 ## 6. Restore the compressed model to the original model structure</br>
