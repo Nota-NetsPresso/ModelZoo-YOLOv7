@@ -203,6 +203,7 @@ def export_onnx(opt, save_path):
         model.model[-1].include_nms = True
         y = None
 
+    print(model) # check
     model.eval()
     output_names = ['classes', 'boxes'] if y is None else ['output']
     dynamic_axes = None
@@ -281,6 +282,486 @@ def export_onnx(opt, save_path):
         mo = RegisterNMS(save_path)
         mo.register_nms()
         mo.save(save_path)
+
+def reparam(opt):
+    device = select_device('cpu', batch_size=1)
+    # model trained by cfg/training/*.yaml
+    ckpt = torch.load(opt.weights, map_location=device)
+    # reparameterized model in cfg/deploy/*.yaml
+    model = Model('cfg/deploy/' + opt.name + '.yaml', ch=3, nc=80).to(device)
+
+    with open('cfg/deploy/' + opt.name + '.yaml') as f:
+        yml = yaml.load(f, Loader=yaml.SafeLoader)
+    anchors = len(yml['anchors'][0]) // 2
+
+    state_dict = ckpt['model'].float().state_dict()
+
+    if opt.name == 'yolov7':
+        # check NetsPresso FD
+        for i in state_dict:
+            assert (f'model.105.m' in i and 'netspressofds' in i) == False, 'Reparameterization is not possible after using NetsPresso FD because the model structure has changed'
+
+        # copy intersect weights
+        exclude = []
+        check_layer = []
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                
+                if ''.join(name_k[1:-1]) not in check_layer:
+                    check_layer.append(''.join(name_k[1:-1]))
+                    
+                    if len(name_k) == 4:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].num_features = v.size(0)
+                    
+                    elif len(name_k) == 5:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].num_features = v.size(0)
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if v.dtype == torch.int64:
+                    apply_v = torch.tensor(v)
+                else:
+                    apply_v = nn.Parameter(v)
+                
+                if len(name_k) == 4:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], name_k[3], apply_v) 
+                elif len(name_k) == 5:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], name_k[4], apply_v)
+
+        model.names = ckpt['model'].names
+        model.nc = ckpt['model'].nc
+
+        # reparametrized YOLOR
+        for i in range((model.nc+5)*anchors):
+            model.state_dict()['model.105.m.0.weight'].data[i, :, :, :] *= state_dict['model.105.im.0.implicit'].data[:, i, : :].squeeze()
+            model.state_dict()['model.105.m.1.weight'].data[i, :, :, :] *= state_dict['model.105.im.1.implicit'].data[:, i, : :].squeeze()
+            model.state_dict()['model.105.m.2.weight'].data[i, :, :, :] *= state_dict['model.105.im.2.implicit'].data[:, i, : :].squeeze()
+        model.state_dict()['model.105.m.0.bias'].data += state_dict['model.105.m.0.weight'].mul(state_dict['model.105.ia.0.implicit']).sum(1).squeeze()
+        model.state_dict()['model.105.m.1.bias'].data += state_dict['model.105.m.1.weight'].mul(state_dict['model.105.ia.1.implicit']).sum(1).squeeze()
+        model.state_dict()['model.105.m.2.bias'].data += state_dict['model.105.m.2.weight'].mul(state_dict['model.105.ia.2.implicit']).sum(1).squeeze()
+        model.state_dict()['model.105.m.0.bias'].data *= state_dict['model.105.im.0.implicit'].data.squeeze()
+        model.state_dict()['model.105.m.1.bias'].data *= state_dict['model.105.im.1.implicit'].data.squeeze()
+        model.state_dict()['model.105.m.2.bias'].data *= state_dict['model.105.im.2.implicit'].data.squeeze()
+
+    elif opt.name == 'yolov7x':
+        # check NetsPresso FD
+        for i in state_dict:
+            assert (f'model.121.m' in i and 'netspressofds' in i) == False, 'Reparameterization is not possible after using NetsPresso FD because the model structure has changed'
+            
+        # copy intersect weights   
+        exclude = []
+        check_layer = []
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                
+                if ''.join(name_k[1:-1]) not in check_layer:
+                    check_layer.append(''.join(name_k[1:-1]))
+                    
+                    if len(name_k) == 4:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].num_features = v.size(0)
+                    
+                    elif len(name_k) == 5:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].num_features = v.size(0)
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if v.dtype == torch.int64:
+                    apply_v = torch.tensor(v)
+                else:
+                    apply_v = nn.Parameter(v)
+                
+                if len(name_k) == 4:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], name_k[3], apply_v) 
+                elif len(name_k) == 5:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], name_k[4], apply_v)
+
+        model.names = ckpt['model'].names
+        model.nc = ckpt['model'].nc
+
+        # reparametrized YOLOR
+        for i in range((model.nc+5)*anchors):
+            model.state_dict()['model.121.m.0.weight'].data[i, :, :, :] *= state_dict['model.121.im.0.implicit'].data[:, i, : :].squeeze()
+            model.state_dict()['model.121.m.1.weight'].data[i, :, :, :] *= state_dict['model.121.im.1.implicit'].data[:, i, : :].squeeze()
+            model.state_dict()['model.121.m.2.weight'].data[i, :, :, :] *= state_dict['model.121.im.2.implicit'].data[:, i, : :].squeeze()
+        model.state_dict()['model.121.m.0.bias'].data += state_dict['model.121.m.0.weight'].mul(state_dict['model.121.ia.0.implicit']).sum(1).squeeze()
+        model.state_dict()['model.121.m.1.bias'].data += state_dict['model.121.m.1.weight'].mul(state_dict['model.121.ia.1.implicit']).sum(1).squeeze()
+        model.state_dict()['model.121.m.2.bias'].data += state_dict['model.121.m.2.weight'].mul(state_dict['model.121.ia.2.implicit']).sum(1).squeeze()
+        model.state_dict()['model.121.m.0.bias'].data *= state_dict['model.121.im.0.implicit'].data.squeeze()
+        model.state_dict()['model.121.m.1.bias'].data *= state_dict['model.121.im.1.implicit'].data.squeeze()
+        model.state_dict()['model.121.m.2.bias'].data *= state_dict['model.121.im.2.implicit'].data.squeeze()
+
+    elif opt.name == 'yolov7-w6':
+        idx = 118
+        idx2 = 122
+
+        # check NetsPresso FD
+        for i in state_dict:
+            assert (f'model.{idx2}.m' in i and 'netspressofds' in i) == False, 'Reparameterization is not possible after using NetsPresso FD because the model structure has changed'
+            
+        # copy intersect weights
+        exclude = []
+        check_layer = []
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                
+                if ''.join(name_k[1:-1]) not in check_layer:
+                    check_layer.append(''.join(name_k[1:-1]))
+                    
+                    if len(name_k) == 4:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].num_features = v.size(0)
+                    
+                    elif len(name_k) == 5:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].num_features = v.size(0)
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if v.dtype == torch.int64:
+                    apply_v = torch.tensor(v)
+                else:
+                    apply_v = nn.Parameter(v)
+                
+                if len(name_k) == 4:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], name_k[3], apply_v) 
+                elif len(name_k) == 5:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], name_k[4], apply_v)
+
+        model.names = ckpt['model'].names
+        model.nc = ckpt['model'].nc
+
+        # copy weights of lead head
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].in_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].out_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].weight.data = state_dict['model.{}.m.0.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].bias.data = state_dict['model.{}.m.0.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].in_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].out_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].weight.data = state_dict['model.{}.m.1.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].bias.data = state_dict['model.{}.m.1.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].in_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].out_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].weight.data = state_dict['model.{}.m.2.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].bias.data = state_dict['model.{}.m.2.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].in_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].out_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].weight.data = state_dict['model.{}.m.3.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].bias.data = state_dict['model.{}.m.3.bias'.format(idx2)].data
+
+        # reparametrized YOLOR
+        for i in range((model.nc+5)*anchors):
+            model.state_dict()['model.{}.m.0.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.0.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.1.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.1.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.2.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.2.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.3.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.3.implicit'.format(idx2)].data[:, i, : :].squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data += state_dict['model.{}.m.0.weight'.format(idx2)].mul(state_dict['model.{}.ia.0.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data += state_dict['model.{}.m.1.weight'.format(idx2)].mul(state_dict['model.{}.ia.1.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data += state_dict['model.{}.m.2.weight'.format(idx2)].mul(state_dict['model.{}.ia.2.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data += state_dict['model.{}.m.3.weight'.format(idx2)].mul(state_dict['model.{}.ia.3.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data *= state_dict['model.{}.im.0.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data *= state_dict['model.{}.im.1.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data *= state_dict['model.{}.im.2.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data *= state_dict['model.{}.im.3.implicit'.format(idx2)].data.squeeze()
+
+    elif opt.name == 'yolov7-e6':
+        idx = 140
+        idx2 = 144
+
+        # check NetsPresso FD
+        for i in state_dict:
+            assert (f'model.{idx2}.m' in i and 'netspressofds' in i) == False, 'Reparameterization is not possible after using NetsPresso FD because the model structure has changed'
+            
+        # copy intersect weights
+        exclude = []
+        check_layer = []
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if name_k[1] == idx:
+                    break
+                
+                if ''.join(name_k[1:-1]) not in check_layer:
+                    check_layer.append(''.join(name_k[1:-1]))
+                    
+                    if len(name_k) == 4:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].num_features = v.size(0)
+                    
+                    elif len(name_k) == 5:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].num_features = v.size(0)
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if name_k[1] == idx:
+                    break
+
+                if v.dtype == torch.int64:
+                    apply_v = torch.tensor(v)
+                else:
+                    apply_v = nn.Parameter(v)
+                
+                if len(name_k) == 4:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], name_k[3], apply_v) 
+                elif len(name_k) == 5:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], name_k[4], apply_v)
+
+        model.names = ckpt['model'].names
+        model.nc = ckpt['model'].nc
+
+        # copy weights of lead head
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].in_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].out_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].weight.data = state_dict['model.{}.m.0.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].bias.data = state_dict['model.{}.m.0.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].in_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].out_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].weight.data = state_dict['model.{}.m.1.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].bias.data = state_dict['model.{}.m.1.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].in_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].out_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].weight.data = state_dict['model.{}.m.2.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].bias.data = state_dict['model.{}.m.2.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].in_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].out_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].weight.data = state_dict['model.{}.m.3.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].bias.data = state_dict['model.{}.m.3.bias'.format(idx2)].data
+
+        # reparametrized YOLOR
+        for i in range((model.nc+5)*anchors):
+            model.state_dict()['model.{}.m.0.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.0.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.1.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.1.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.2.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.2.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.3.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.3.implicit'.format(idx2)].data[:, i, : :].squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data += state_dict['model.{}.m.0.weight'.format(idx2)].mul(state_dict['model.{}.ia.0.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data += state_dict['model.{}.m.1.weight'.format(idx2)].mul(state_dict['model.{}.ia.1.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data += state_dict['model.{}.m.2.weight'.format(idx2)].mul(state_dict['model.{}.ia.2.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data += state_dict['model.{}.m.3.weight'.format(idx2)].mul(state_dict['model.{}.ia.3.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data *= state_dict['model.{}.im.0.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data *= state_dict['model.{}.im.1.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data *= state_dict['model.{}.im.2.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data *= state_dict['model.{}.im.3.implicit'.format(idx2)].data.squeeze()
+
+    elif opt.name == 'yolov7-d6':
+        idx = 162
+        idx2 = 166
+
+        # check NetsPresso FD
+        for i in state_dict:
+            assert (f'model.{idx2}.m' in i and 'netspressofds' in i) == False, 'Reparameterization is not possible after using NetsPresso FD because the model structure has changed'
+            
+        # copy intersect weights
+        exclude = []
+        check_layer = []
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if name_k[1] == idx:
+                    break
+                
+                if ''.join(name_k[1:-1]) not in check_layer:
+                    check_layer.append(''.join(name_k[1:-1]))
+                    
+                    if len(name_k) == 4:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].num_features = v.size(0)
+                    
+                    elif len(name_k) == 5:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].num_features = v.size(0)
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if name_k[1] == idx:
+                    break
+
+                if v.dtype == torch.int64:
+                    apply_v = torch.tensor(v)
+                else:
+                    apply_v = nn.Parameter(v)
+                
+                if len(name_k) == 4:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], name_k[3], apply_v) 
+                elif len(name_k) == 5:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], name_k[4], apply_v)
+        
+        model.names = ckpt['model'].names
+        model.nc = ckpt['model'].nc
+
+        # copy weights of lead head
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].in_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].out_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].weight.data = state_dict['model.{}.m.0.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].bias.data = state_dict['model.{}.m.0.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].in_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].out_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].weight.data = state_dict['model.{}.m.1.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].bias.data = state_dict['model.{}.m.1.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].in_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].out_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].weight.data = state_dict['model.{}.m.2.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].bias.data = state_dict['model.{}.m.2.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].in_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].out_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].weight.data = state_dict['model.{}.m.3.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].bias.data = state_dict['model.{}.m.3.bias'.format(idx2)].data
+
+        # reparametrized YOLOR
+        for i in range((model.nc+5)*anchors):
+            model.state_dict()['model.{}.m.0.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.0.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.1.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.1.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.2.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.2.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.3.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.3.implicit'.format(idx2)].data[:, i, : :].squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data += state_dict['model.{}.m.0.weight'.format(idx2)].mul(state_dict['model.{}.ia.0.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data += state_dict['model.{}.m.1.weight'.format(idx2)].mul(state_dict['model.{}.ia.1.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data += state_dict['model.{}.m.2.weight'.format(idx2)].mul(state_dict['model.{}.ia.2.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data += state_dict['model.{}.m.3.weight'.format(idx2)].mul(state_dict['model.{}.ia.3.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data *= state_dict['model.{}.im.0.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data *= state_dict['model.{}.im.1.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data *= state_dict['model.{}.im.2.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data *= state_dict['model.{}.im.3.implicit'.format(idx2)].data.squeeze()
+
+    elif opt.name == 'yolov7-e6e':
+        idx = 261
+        idx2 = 265
+
+        # check NetsPresso FD
+        for i in state_dict:
+            assert (f'model.{idx2}.m' in i and 'netspressofds' in i) == False, 'Reparameterization is not possible after using NetsPresso FD because the model structure has changed'
+            
+        # copy intersect weights
+        exclude = []
+        check_layer = []
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if name_k[1] == idx:
+                    break
+                
+                if ''.join(name_k[1:-1]) not in check_layer:
+                    check_layer.append(''.join(name_k[1:-1]))
+                    
+                    if len(name_k) == 4:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]].num_features = v.size(0)
+                    
+                    elif len(name_k) == 5:
+                        if isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.conv.Conv2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].in_channels = v.size(1)
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].out_channels = v.size(0)
+                        elif isinstance(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], torch.nn.modules.batchnorm.BatchNorm2d):
+                            model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]].num_features = v.size(0)
+
+        for k, v in state_dict.items():
+            if k in model.state_dict() and not any(x in k for x in exclude):
+                name_k = k.split('.')
+                if name_k[1] == idx:
+                    break
+
+                if v.dtype == torch.int64:
+                    apply_v = torch.tensor(v)
+                else:
+                    apply_v = nn.Parameter(v)
+                
+                if len(name_k) == 4:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]], name_k[3], apply_v) 
+                elif len(name_k) == 5:
+                    setattr(model._modules[name_k[0]]._modules[name_k[1]]._modules[name_k[2]]._modules[name_k[3]], name_k[4], apply_v)
+        
+        model.names = ckpt['model'].names
+        model.nc = ckpt['model'].nc
+
+        # copy weights of lead head
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].in_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].out_channel = state_dict['model.{}.m.0.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].weight.data = state_dict['model.{}.m.0.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['0'].bias.data = state_dict['model.{}.m.0.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].in_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].out_channel = state_dict['model.{}.m.1.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].weight.data = state_dict['model.{}.m.1.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['1'].bias.data = state_dict['model.{}.m.1.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].in_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].out_channel = state_dict['model.{}.m.2.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].weight.data = state_dict['model.{}.m.2.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['2'].bias.data = state_dict['model.{}.m.2.bias'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].in_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(1)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].out_channel = state_dict['model.{}.m.3.weight'.format(idx2)].size(0)
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].weight.data = state_dict['model.{}.m.3.weight'.format(idx2)].data
+        model._modules['model']._modules[str(idx)]._modules['m']._modules['3'].bias.data = state_dict['model.{}.m.3.bias'.format(idx2)].data
+
+        # reparametrized YOLOR
+        for i in range((model.nc+5)*anchors):
+            model.state_dict()['model.{}.m.0.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.0.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.1.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.1.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.2.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.2.implicit'.format(idx2)].data[:, i, : :].squeeze()
+            model.state_dict()['model.{}.m.3.weight'.format(idx)].data[i, :, :, :] *= state_dict['model.{}.im.3.implicit'.format(idx2)].data[:, i, : :].squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data += state_dict['model.{}.m.0.weight'.format(idx2)].mul(state_dict['model.{}.ia.0.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data += state_dict['model.{}.m.1.weight'.format(idx2)].mul(state_dict['model.{}.ia.1.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data += state_dict['model.{}.m.2.weight'.format(idx2)].mul(state_dict['model.{}.ia.2.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data += state_dict['model.{}.m.3.weight'.format(idx2)].mul(state_dict['model.{}.ia.3.implicit'.format(idx2)]).sum(1).squeeze()
+        model.state_dict()['model.{}.m.0.bias'.format(idx)].data *= state_dict['model.{}.im.0.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.1.bias'.format(idx)].data *= state_dict['model.{}.im.1.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.2.bias'.format(idx)].data *= state_dict['model.{}.im.2.implicit'.format(idx2)].data.squeeze()
+        model.state_dict()['model.{}.m.3.bias'.format(idx)].data *= state_dict['model.{}.im.3.implicit'.format(idx2)].data.squeeze()
+
+    # model to be saved
+    ckpt = {'model': deepcopy(model.module if is_parallel(model) else model).half(),
+            'optimizer': None,
+            'training_results': None,
+            'epoch': -1}
+    
+    return ckpt
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -462,12 +943,13 @@ if __name__ == '__main__':
         Export YOLOv5 model to onnx
     """
     logger.info("Export model to onnx format step start.")
-    
-    #model = reparam(opt)
-    #torch.save(model, COMPRESSED_MODEL_NAME + '_before_onnx.pt')
-    #opt.weights = COMPRESSED_MODEL_NAME + '_before_onnx.pt'
 
     opt.weights = opt.save_dir + '/weights/best.pt'
+    if opt.compression_method.split('_')[0] == 'PR': # FD cannot use reparameterization
+        model = reparam(opt)
+        torch.save(model, COMPRESSED_MODEL_NAME + '_before_onnx.pt')
+        opt.weights = COMPRESSED_MODEL_NAME + '_before_onnx.pt'
+
     export_onnx(opt, COMPRESSED_MODEL_NAME + '.onnx')
     
     logger.info(f'=> saving model to {COMPRESSED_MODEL_NAME}.onnx')
