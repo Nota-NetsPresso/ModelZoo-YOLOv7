@@ -29,6 +29,7 @@ from models.yolo import Model
 from models.common import *
 from models.experimental import attempt_load, End2End
 from train import train
+from train_aux import train as train_aux
 from yolov7_fx2p import fx2p
 
 
@@ -82,7 +83,10 @@ def train_run(opt):
             prefix = colorstr('tensorboard: ')
             logger.info(f"{prefix}Start with 'tensorboard --logdir {opt.project}', view at http://localhost:6006/")
             tb_writer = SummaryWriter(opt.save_dir)  # Tensorboard
-        train(hyp, opt, device, tb_writer)
+        if opt.name in ['yolov7', 'yolov7x']: # Use different func
+            train(hyp.copy(), opt, device, tb_writer)
+        else:
+            train_aux(hyp.copy(), opt, device, tb_writer)
 
     # Evolve hyperparameters (optional)
     else:
@@ -163,7 +167,10 @@ def train_run(opt):
                 hyp[k] = round(hyp[k], 5)  # significant digits
 
             # Train mutation
-            results = train(hyp.copy(), opt, device)
+            if opt.name in ['yolov7', 'yolov7x']: # Use different func
+                results = train(hyp.copy(), opt, device)
+            else:
+                results = train_aux(hyp.copy(), opt, device)
 
             # Write mutation results
             print_mutation(hyp.copy(), results, yaml_file, opt.bucket)
