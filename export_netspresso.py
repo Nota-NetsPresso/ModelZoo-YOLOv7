@@ -36,6 +36,6 @@ if __name__ == '__main__':
     import torch.fx as fx
 
     model.train()
-    _graph = fx.Tracer().trace(model, {'augment': False, 'profile':False})
+    _graph = fx.Tracer().trace(model)
     traced_model = fx.GraphModule(model, _graph)
     torch.save(traced_model, "yolov7_fx.pt")

@@ -80,12 +80,12 @@ def detect(save_img=False):
             old_img_h = img.shape[2]
             old_img_w = img.shape[3]
             for i in range(3):
-                model(img, augment=opt.augment)[0]
+                model(img)[0]#, augment=opt.augment)[0]
 
         # Inference
         t1 = time_synchronized()
         with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
-            pred = model(img, augment=opt.augment)[0]
+            pred = model(img)[0]#, augment=opt.augment)[0]
         t2 = time_synchronized()
 
         # Apply NMS
