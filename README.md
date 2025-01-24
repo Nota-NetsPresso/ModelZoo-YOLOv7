@@ -93,92 +93,23 @@ pip install netspresso
 ### 5_2. Upload & compress
 First, import the packages and set a NetsPresso username and password.
 ```python
-from netspresso.compressor import ModelCompressor, Task, Framework, CompressionMethod, RecommendationMethod
+from netspresso import NetsPresso
 
-EMAIL = "YOUR_EMAIL"
-PASSWORD = "YOUR_PASSWORD"
-compressor = ModelCompressor(email=EMAIL, password=PASSWORD)
+netspresso = NetsPresso(email="YOUR_EMAIL", password="YOUR_PASSWORD")
 ```
 Second, upload 'model_to_compress.pt', which is the model converted to torchfx in step 4, with the following code.
 ```python
-# Upload Model
-UPLOAD_MODEL_NAME = "yolov7_model"
-TASK = Task.OBJECT_DETECTION
-FRAMEWORK = Framework.PYTORCH
-UPLOAD_MODEL_PATH = "./yolov7_fx.pt"
-INPUT_SHAPES = [{"batch": 1, "channel": 3, "dimension": [640, 640]}]
-model = compressor.upload_model(
-    model_name=UPLOAD_MODEL_NAME,
-    task=TASK,
-    framework=FRAMEWORK,
-    file_path=UPLOAD_MODEL_PATH,
-    input_shapes=INPUT_SHAPES,
+# 1. Declare compressor
+compressor = netspresso.compressor_v2()
+
+# 2. Run automatic compression
+compression_result = compressor.automatic_compression(
+    input_shapes=[{"batch": 1, "channel": 3, "dimension": [640, 640]}],
+    input_model_path="./yolov7_fx.pt",
+    output_dir="./yolov7_L206.pt",
+    compression_ratio=0.5,
 )
 ```
-Finally, you can compress the uploaded model with the desired options through the following code.
-```python
-# Recommendation Compression
-COMPRESSED_MODEL_NAME = "test_l2norm"
-COMPRESSION_METHOD = CompressionMethod.PR_L2
-RECOMMENDATION_METHOD = RecommendationMethod.SLAMP
-RECOMMENDATION_RATIO = 0.6
-OUTPUT_PATH = "./yolov7_L206.pt"
-compressed_model = compressor.recommendation_compression(
-    model_id=model.model_id,
-    model_name=COMPRESSED_MODEL_NAME,
-    compression_method=COMPRESSION_METHOD,
-    recommendation_method=RECOMMENDATION_METHOD,
-    recommendation_ratio=RECOMMENDATION_RATIO,
-    output_path=OUTPUT_PATH,
-)
-```
-
-<details>
-<summary>Click to check 'Full upload & compress code'</summary>
-
-```bash
-pip install netspresso
-```
-
-```python
-from netspresso.compressor import ModelCompressor, Task, Framework, CompressionMethod, RecommendationMethod
-
-
-EMAIL = "YOUR_EMAIL"
-PASSWORD = "YOUR_PASSWORD"
-compressor = ModelCompressor(email=EMAIL, password=PASSWORD)
-
-# Upload Model
-UPLOAD_MODEL_NAME = "yolov7_model"
-TASK = Task.OBJECT_DETECTION
-FRAMEWORK = Framework.PYTORCH
-UPLOAD_MODEL_PATH = "./yolov7_fx.pt"
-INPUT_SHAPES = [{"batch": 1, "channel": 3, "dimension": [640, 640]}]
-model = compressor.upload_model(
-    model_name=UPLOAD_MODEL_NAME,
-    task=TASK,
-    framework=FRAMEWORK,
-    file_path=UPLOAD_MODEL_PATH,
-    input_shapes=INPUT_SHAPES,
-)
-
-# Recommendation Compression
-COMPRESSED_MODEL_NAME = "test_l2norm"
-COMPRESSION_METHOD = CompressionMethod.PR_L2
-RECOMMENDATION_METHOD = RecommendationMethod.SLAMP
-RECOMMENDATION_RATIO = 0.6
-OUTPUT_PATH = "./yolov7_L206.pt"
-compressed_model = compressor.recommendation_compression(
-    model_id=model.model_id,
-    model_name=COMPRESSED_MODEL_NAME,
-    compression_method=COMPRESSION_METHOD,
-    recommendation_method=RECOMMENDATION_METHOD,
-    recommendation_ratio=RECOMMENDATION_RATIO,
-    output_path=OUTPUT_PATH,
-)
-```
-
-</details>
 
 More commands can be found in the official NetsPresso Python Package docs: https://nota-netspresso.github.io/PyNetsPresso-docs<br/>
 Alternatively, you can do the same as above through the GUI on our website: https://console.netspresso.ai/models<br/><br/>
